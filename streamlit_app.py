@@ -1,38 +1,52 @@
-from collections import namedtuple
-import altair as alt
-import math
-import pandas as pd
 import streamlit as st
+import requests
+from io import StringIO
+from transformer import pipeline
+
+model_id = "philschmid/bart-large-cnn-samsum"
+api_token = 'api_zvZqQAtBgkyqKLdHyhulHRlmwSECJVSSjo'
+
+summarizer = pipeline("summarization", model="lidiya/bart-large-xsum-samsum")
+
 
 """
-# Welcome to Streamlit!
-
-Edit `/streamlit_app.py` to customize this app to your heart's desire :heart:
-
-If you have any questions, checkout our [documentation](https://docs.streamlit.io) and [community
-forums](https://discuss.streamlit.io).
-
-In the meantime, below is an example of what you can do with just a few lines of code:
+# Meeting summarizer
 """
 
 
-with st.echo(code_location='below'):
-    total_points = st.slider("Number of points in spiral", 1, 5000, 2000)
-    num_turns = st.slider("Number of turns in spiral", 1, 100, 9)
+def chunks(lst, n):
+    """Yield successive n-sized chunks from lst."""
+    for i in range(0, len(lst), n):
+        yield lst[i:i + n]
 
-    Point = namedtuple('Point', 'x y')
-    data = []
 
-    points_per_turn = total_points / num_turns
+@st.cache
+def query(payload, model_id, api_token):
+    headers = {"Authorization": f"Bearer {api_token}"}
+    API_URL = f"https://api-inference.huggingface.co/models/{model_id}"
+    response = requests.post(API_URL, headers=headers, json=payload)
+    return response.json()
 
-    for curr_point_num in range(total_points):
-        curr_turn, i = divmod(curr_point_num, points_per_turn)
-        angle = (curr_turn + 1) * 2 * math.pi * i / points_per_turn
-        radius = curr_point_num / total_points
-        x = radius * math.cos(angle)
-        y = radius * math.sin(angle)
-        data.append(Point(x, y))
 
-    st.altair_chart(alt.Chart(pd.DataFrame(data), height=500, width=500)
-        .mark_circle(color='#0068c9', opacity=0.5)
-        .encode(x='x:Q', y='y:Q'))
+def main():
+    path = st.file_uploader("Upload transcription", type=['csv', 'txt'])
+    if not path:
+        st.write("Upload a .csv or .xlsx file to get started")
+        return
+
+    stringio = StringIO(path.getvalue().decode("utf-8"))
+    string_data = stringio.read()
+    #st.write('Running summarizer...')
+    string_data = [x for x in string_data.splitlines() if not x.startswith('Customer :')]
+    #string_data = string_data.replace('Customer\n', ' ')
+    #results = query(string_data, model_id, api_token)
+    chunksize = round(len(string_data) / 2)
+    results = [query(a,  model_id, api_token) for
+               a in list(chunks(string_data, chunksize))]
+    if results:
+        st.write('Summary:')
+        st.write(results[0]['summary_text'])
+
+main()
+
+
